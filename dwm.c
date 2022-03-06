@@ -989,10 +989,20 @@ grabkeys(void)
 	}
 }
 
+int client_count() {
+	int count = 0;
+
+	for (Client* c = selmon -> clients; c; c = c -> next) {
+		count++;
+	}
+
+	return count;
+}
+
 void
 incnmaster(const Arg *arg)
 {
-	selmon->nmaster = MAX(selmon->nmaster + arg->i, 0);
+	selmon -> nmaster = MAX(MIN(selmon -> nmaster + arg -> i, client_count()), 0);
 	arrange(selmon);
 }
 
