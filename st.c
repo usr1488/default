@@ -1038,6 +1038,8 @@ treset(void)
 	memset(term.tabs, 0, term.col * sizeof(*term.tabs));
 	for (i = tabspaces; i < term.col; i += tabspaces)
 		term.tabs[i] = 1;
+
+	term.histi = 0;
 	term.top = 0;
 	term.bot = term.row - 1;
 	term.mode = MODE_WRAP|MODE_UTF8;
@@ -1092,12 +1094,12 @@ kscrolldown(const Arg* a)
 void
 kscrollup(const Arg* a)
 {
-	int n = a->i;
+	int n = a -> i;
 
 	if (n < 0)
 		n = term.row + n;
 
-	if (term.scr <= HISTSIZE-n) {
+	if (term.histi - term.scr > 0 && term.scr <= HISTSIZE - n) {
 		term.scr += n;
 		selscroll(0, n);
 		tfulldirt();
