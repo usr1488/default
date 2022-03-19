@@ -239,6 +239,7 @@ static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void shiftview(const Arg*);
+static void kblayout(const Arg*);
 
 /* variables */
 static const char autostartblocksh[] = "autostart_blocking.sh";
@@ -253,6 +254,7 @@ static int bh, blw = 0;      /* bar geometry */
 static int lrpad;            /* sum of left and right padding for text */
 static int vp;               /* vertical padding for bar */
 static int sp;               /* side padding for bar */
+static int kb_layout_idx;
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
@@ -2229,13 +2231,26 @@ zoom(const Arg *arg)
 void shiftview(const Arg *arg) {
 	Arg shifted;
 
-	if(arg -> i > 0) { // left circular shift
+	if (arg -> i > 0) { // left circular shift
 		shifted.ui = (selmon -> tagset[selmon -> seltags] << arg -> i) | (selmon -> tagset[selmon -> seltags] >> (LENGTH(tags) - arg -> i));
 	} else { // right circular shift
 		shifted.ui = selmon -> tagset[selmon -> seltags] >> (-arg -> i) | selmon -> tagset[selmon -> seltags] << (LENGTH(tags) + arg -> i);
 	}
 
 	view(&shifted);
+}
+
+void kblayout(const Arg* a) {
+	char cmd[13];
+	const char* layout = kb_layouts[++kb_layout_idx];
+
+	if (!layout) {
+		kb_layout_idx = 0;
+		layout = kb_layouts[0];
+	}
+
+	snprintf(cmd, sizeof(cmd), "setxkbmap %s", layout);
+	system(cmd);
 }
 
 int
