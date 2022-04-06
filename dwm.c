@@ -240,6 +240,7 @@ static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void shiftview(const Arg*);
 static void kblayout(const Arg*);
+static void setbright(const Arg*);
 
 /* variables */
 static const char autostartblocksh[] = "autostart_blocking.sh";
@@ -2250,6 +2251,27 @@ void kblayout(const Arg* a) {
 	}
 
 	snprintf(cmd, sizeof(cmd), "setxkbmap %s", layout);
+	system(cmd);
+}
+
+void setbright(const Arg* a) {
+	char cmd[20];
+	int lvl = a -> i;
+	
+	if (lvl > 0) {
+		if (lvl > 100) {
+			lvl = 100;
+		}
+
+		snprintf(cmd, sizeof(cmd), "xbacklight -inc %d", lvl);
+	} else if (lvl < 0) {
+		if (lvl < -100) {
+			lvl = -100;
+		}
+
+		snprintf(cmd, sizeof(cmd), "xbacklight -dec %d", lvl * -1);
+	}
+
 	system(cmd);
 }
 

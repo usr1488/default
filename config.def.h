@@ -88,6 +88,8 @@ static Key keys[] = {
 	{ MODKEY,                       XK_Right,  shiftview,      {.i = +1 } },
 	{ MODKEY,                       XK_Left,   shiftview,      {.i = -1 } },
 	{ Mod1Mask,                     XK_Shift_L,kblayout,       {0} },
+	{ MODKEY,                       XK_F5,     setbright,      {.i = -10} },
+	{ MODKEY,                       XK_F6,     setbright,      {.i = +10} },
 	TAGKEYS(                        XK_1,                      0)
 	TAGKEYS(                        XK_2,                      1)
 	TAGKEYS(                        XK_3,                      2)
