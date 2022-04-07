@@ -254,7 +254,6 @@ static int bh, blw = 0;      /* bar geometry */
 static int lrpad;            /* sum of left and right padding for text */
 static int vp;               /* vertical padding for bar */
 static int sp;               /* side padding for bar */
-static int kb_layout_idx;
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
@@ -2241,8 +2240,9 @@ void shiftview(const Arg *arg) {
 }
 
 void kblayout(const Arg* a) {
-	char cmd[13];
+	static int kb_layout_idx;
 	const char* layout = kb_layouts[++kb_layout_idx];
+	char cmd[13];
 
 	if (!layout) {
 		kb_layout_idx = 0;
