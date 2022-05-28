@@ -15,7 +15,8 @@
 
 #define MAX_SYMBOLS 64
 #define MEMINFO_PATH "/proc/meminfo"
-#define BATTERY_PATH "/sys/class/power_supply/BAT0/capacity"
+#define BATTERY_CAPACITY_PATH "/sys/class/power_supply/BAT0/capacity"
+#define BATTERY_STATUS_PATH "/sys/class/power_supply/BAT0/status"
 #define MILLIS_TO_MICROS(M) M * 1000 > 1000000 ? 1000000 : M * 1000 // usleep range check
 
 static char* ram(void);
@@ -43,9 +44,9 @@ struct {
 } meminfo;
 
 struct {
-	int fd;
-	char* buffer;
-	unsigned char size;
+	int capacity_fd;
+	int status_fd;
+	char buffer[10];
 } battery;
 
 struct {
@@ -214,11 +215,34 @@ char* ram(void) {
 }
 
 char* battery_status(void) {
-	if (battery.fd == -1) {
+	int charging;
+	char capacity[5] = { 0 };
+
+	if (battery.capacity_fd == -1) {
 		return "";
 	}
 
-	return "";
+	memset(battery.buffer, 0, sizeof(battery.buffer));
+
+	if (read_all(battery.status_fd, battery.buffer, sizeof(battery.buffer)) == -1) {
+		perror("battery_status read "BATTERY_STATUS_PATH" error");
+		return "";
+	}
+
+	charging = !strcmp(battery.buffer, "Charging\n");
+
+	if (read_all(battery.capacity_fd, capacity, sizeof(capacity)) == -1) {
+		perror("battery_status read "BATTERY_CAPACITY_PATH" error");
+		return "";
+	}
+
+	str_cut(capacity, "\n");
+	snprintf(battery.buffer, sizeof(battery.buffer), "%c%s %%", charging ? '+' : ' ', capacity);
+
+	lseek(battery.status_fd, 0, SEEK_SET);
+	lseek(battery.capacity_fd, 0, SEEK_SET);
+
+	return battery.buffer;
 }
 
 char* keyboard_layout(void) {
@@ -319,10 +343,17 @@ void setup_ram(void) {
 }
 
 void setup_battery_status(void) {
-	battery.fd = open(BATTERY_PATH, O_RDONLY);
+	battery.capacity_fd = open(BATTERY_CAPACITY_PATH, O_RDONLY);
 
-	if (battery.fd == -1 && errno != ENOENT) {
-		perror("setup_battery_status open error");
+	if (battery.capacity_fd == -1 && errno != ENOENT) {
+		perror("setup_battery_status open "BATTERY_CAPACITY_PATH" error");
+		exit(-1);
+	}
+
+	battery.status_fd = open(BATTERY_STATUS_PATH, O_RDONLY);
+
+	if (battery.status_fd == -1 && errno != ENOENT) {
+		perror("setup_battery_status open "BATTERY_STATUS_PATH" error");
 		exit(-1);
 	}
 }
@@ -434,6 +465,7 @@ void setup(void) {
 	}
 
 	setup_ram();
+	setup_battery_status();
 	setup_keyboard_layout();
 }
 

@@ -26,7 +26,10 @@ dwm: ${OBJ}
 	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 status:
-	${CC} -o status status.c ${LDFLAGS}
+	${CC} -Os -Wall -o status status.c ${LDFLAGS}
+
+status_debug:
+	${CC} -g -o status status.c ${LDFLAGS}
 
 clean:
 	rm -f dwm status ${OBJ} dwm-${VERSION}.tar.gz
