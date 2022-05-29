@@ -98,16 +98,15 @@ char* str_trim(char* str) {
 	for (int a = 0; a < str_length; a++) {
 		if (str[a] != ' ') {
 			memcpy(str, str + a, str_length - a + 1);
+			str_length -= a;
 			found = 1;
 			break;
 		}
 	}
-	
+
 	if (!found) {
 		return str;
 	}
-
-	str_length = strlen(str);
 
 	for (int a = str_length - 1; a >= 0; a--) {
 		if (str[a] != ' ') {
