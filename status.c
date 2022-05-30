@@ -121,27 +121,21 @@ char* str_trim(char* str) {
 ssize_t read_all(int fd, void* ptr, size_t amount) {
 	ssize_t total = 0, b;
 
-	while ((b = read(fd, ptr + total, amount - total)) != -1) {
-		total += b;
-
-		if (total == amount || !b) {
+	while ((b = read(fd, ptr + total, amount - total))) {
+		if (b == -1) {
+			return b;
+		} else if ((total += b) == amount) {
 			return total;
 		}
 	}
 
-	return b;
+	return total;
 }
 
 void format_kb(int kb, char* buffer, int size) {
-	int numbers_count = 1, tmp = kb;
-
-	while (tmp /= 10) {
-		numbers_count++;
-	}
-
-	if (numbers_count > 6) {
+	if (kb >= 1024 * 1024) {
 		snprintf(buffer, size, "%.2f GiB", kb / (float) (1024 * 1024));
-	} else if (numbers_count > 3) {
+	} else if (kb >= 1024) {
 		snprintf(buffer, size, "%d MiB", kb / 1024);
 	} else {
 		snprintf(buffer, size, "%d KiB", kb);
@@ -214,12 +208,12 @@ char* ram(void) {
 }
 
 char* battery_status(void) {
-	int charging;
-	char capacity[5] = { 0 };
-
 	if (battery.capacity_fd == -1) {
 		return "";
 	}
+
+	int charging, b;
+	char capacity[5] = { 0 };
 
 	memset(battery.buffer, 0, sizeof(battery.buffer));
 
@@ -230,12 +224,12 @@ char* battery_status(void) {
 
 	charging = !strcmp(battery.buffer, "Charging\n");
 
-	if (read_all(battery.capacity_fd, capacity, sizeof(capacity)) == -1) {
+	if ((b = read_all(battery.capacity_fd, capacity, sizeof(capacity))) == -1) {
 		perror("battery_status read "BATTERY_CAPACITY_PATH" error");
 		return "";
 	}
 
-	str_cut(capacity, "\n");
+	capacity[b - 1] = 0; // replace \n
 	snprintf(battery.buffer, sizeof(battery.buffer), "%c%s %%", charging ? '+' : ' ', capacity);
 
 	lseek(battery.status_fd, 0, SEEK_SET);
@@ -257,7 +251,7 @@ char* keyboard_layout(void) {
 		XkbFreeNames(keyboard, XkbSymbolsNameMask, False);
 
 		strcpy(layout.buffer, strchr(layout.buffer, '+') + 1);
-		*strchr(layout.buffer, '+') = 0;
+		layout.buffer[2] = 0; // xkb symbols contains only 2 chars - us, cz, de etc.
 	}
 
 	return layout.buffer;
