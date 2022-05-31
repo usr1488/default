@@ -19,16 +19,16 @@
 #define BATTERY_STATUS_PATH "/sys/class/power_supply/BAT0/status"
 #define MILLIS_TO_MICROS(M) M * 1000 > 1000000 ? 1000000 : M * 1000 // usleep range check
 
-static char* ram(void);
+static char* ram_status(void);
 static char* battery_status(void);
-static char* keyboard_layout(void);
-static char* date_time(void);
+static char* layout_status(void);
+static char* date_status(void);
 
-char* (*handlers[])(void) = {
-	ram,
+char* (*status_providers[])(void) = {
+	ram_status,
 	battery_status,
-	keyboard_layout,
-	date_time
+	layout_status,
+	date_status
 };
 
 Display* display;
@@ -41,7 +41,7 @@ struct {
 	char* mem_total_fmt;  // formatted 'mem_total' - '7.67 GiB', '526 MiB' etc.
 	char* buffer;         // allocated once in setup(), used for subsequent reads
 	unsigned char size;   // length of single line in /proc/meminfo, used for allocating 'buffer'
-} meminfo;
+} ram;
 
 struct {
 	int capacity_fd;
@@ -59,31 +59,34 @@ void signal_handler(int, siginfo_t* info, void*) {
 	layout.changed = info -> si_value.sival_int;
 }
 
+// UTILS BEGIN
+
 // remove 'target' string from 'str' string
 // doesn't work with string literals passed to 'str', fails with segfault due to modification of .rodata segment
 char* str_cut(char* str, char* target) {
 	int str_length = strlen(str);
 	int target_length = strlen(target);
-	int found = 1;
+
+	if (target_length > str_length) {
+		return str;
+	}
 
 	for (int a = 0; a < str_length; a++) {
 		if (str[a] == *target) {
 			for (int j = 1; j < target_length; j++) {
 				if (str[a + j] != target[j]) {
-					found = 0;
-					break;
+					a += j - 1; // skip checked bytes
+					goto not_found;
 				}
 			}
 
-			if (found) {
-				// dest - index of first 'target' character
-				// src  - index of first character after 'target'
-				// n    - length of string after 'target', plus terminating byte
-				memcpy(str + a, str + a + target_length, str_length - target_length - a + 1);
-				return str;
-			}
+			// dest - index of first 'target' character
+			// src  - index of first character after 'target'
+			// n    - length of string after 'target', plus terminating byte
+			memcpy(str + a, str + a + target_length, str_length - target_length - a + 1);
+			return str;
 
-			found = 1;
+			not_found:
 		}
 	}
 
@@ -93,19 +96,18 @@ char* str_cut(char* str, char* target) {
 // remove whitespaces at the begining and at the end of 'str'
 // doesn't work with string literals, fails with segfault due to modification of .rodata segment
 char* str_trim(char* str) {
-	int str_length = strlen(str), found = 0;
+	int str_length = strlen(str);
+
+	if (*str != ' ' && str[str_length - 1] != ' ') {
+		return str;
+	}
 
 	for (int a = 0; a < str_length; a++) {
 		if (str[a] != ' ') {
 			memcpy(str, str + a, str_length - a + 1);
 			str_length -= a;
-			found = 1;
 			break;
 		}
-	}
-
-	if (!found) {
-		return str;
 	}
 
 	for (int a = str_length - 1; a >= 0; a--) {
@@ -142,69 +144,73 @@ void format_kb(int kb, char* buffer, int size) {
 	}
 }
 
-char* ram(void) {
+// UTILS END
+
+// HANDLERS START
+
+char* ram_status(void) {
 	int mem_free, buffers, cached, sreclaimable;
-	char mem_used[meminfo.size];
+	char mem_used[ram.size];
 
-	fsync(meminfo.fd);
-	lseek(meminfo.fd, meminfo.size, SEEK_SET); // MemFree
+	fsync(ram.fd);
+	lseek(ram.fd, ram.size, SEEK_SET); // MemFree
 
-	if (read_all(meminfo.fd, meminfo.buffer, meminfo.size) == -1) {
-		perror("ram mem_free read error");
+	if (read_all(ram.fd, ram.buffer, ram.size) == -1) {
+		perror("ram_status mem_free read error");
 		return "";
 	}
 
-	meminfo.buffer[meminfo.size - 1] = 0; // replace \n
-	str_cut(meminfo.buffer, "MemFree:");
-	str_cut(meminfo.buffer, "kB");
-	str_trim(meminfo.buffer);
-	mem_free = atoi(meminfo.buffer);
+	ram.buffer[ram.size - 1] = 0; // replace \n
+	str_cut(ram.buffer, "MemFree:");
+	str_cut(ram.buffer, "kB");
+	str_trim(ram.buffer);
+	mem_free = atoi(ram.buffer);
 
-	lseek(meminfo.fd, meminfo.size * 3, SEEK_SET); // Buffers
+	lseek(ram.fd, ram.size * 3, SEEK_SET); // Buffers
 
-	if (read_all(meminfo.fd, meminfo.buffer, meminfo.size) == -1) {
-		perror("ram buffers read error");
+	if (read_all(ram.fd, ram.buffer, ram.size) == -1) {
+		perror("ram_status buffers read error");
 		return "";
 	}
 
-	meminfo.buffer[meminfo.size - 1] = 0; // replace \n
-	str_cut(meminfo.buffer, "Buffers:");
-	str_cut(meminfo.buffer, "kB");
-	str_trim(meminfo.buffer);
-	buffers = atoi(meminfo.buffer);
+	ram.buffer[ram.size - 1] = 0; // replace \n
+	str_cut(ram.buffer, "Buffers:");
+	str_cut(ram.buffer, "kB");
+	str_trim(ram.buffer);
+	buffers = atoi(ram.buffer);
 
-	if (read_all(meminfo.fd, meminfo.buffer, meminfo.size) == -1) {
-		perror("ram cached read error");
+	if (read_all(ram.fd, ram.buffer, ram.size) == -1) {
+		perror("ram_status cached read error");
 		return "";
 	}
 
-	meminfo.buffer[meminfo.size - 1] = 0; // replace \n
-	str_cut(meminfo.buffer, "Cached:");
-	str_cut(meminfo.buffer, "kB");
-	str_trim(meminfo.buffer);
-	cached = atoi(meminfo.buffer);
+	ram.buffer[ram.size - 1] = 0; // replace \n
+	str_cut(ram.buffer, "Cached:");
+	str_cut(ram.buffer, "kB");
+	str_trim(ram.buffer);
+	cached = atoi(ram.buffer);
 
-	lseek(meminfo.fd, meminfo.size * 23, SEEK_SET); // SReclaimable
+	lseek(ram.fd, ram.size * 23, SEEK_SET); // SReclaimable
 
-	if (read_all(meminfo.fd, meminfo.buffer, meminfo.size) == -1) {
-		perror("ram sreclaimable read error");
+	if (read_all(ram.fd, ram.buffer, ram.size) == -1) {
+		perror("ram_status sreclaimable read error");
 		return "";
 	}
 
-	meminfo.buffer[meminfo.size - 1] = 0; // replace \n
-	str_cut(meminfo.buffer, "SReclaimable:");
-	str_cut(meminfo.buffer, "kB");
-	str_trim(meminfo.buffer);
-	sreclaimable = atoi(meminfo.buffer);
+	ram.buffer[ram.size - 1] = 0; // replace \n
+	str_cut(ram.buffer, "SReclaimable:");
+	str_cut(ram.buffer, "kB");
+	str_trim(ram.buffer);
+	sreclaimable = atoi(ram.buffer);
 
 	format_kb(
-			(atoi(meminfo.mem_total) - mem_free) - (buffers + cached + sreclaimable), // used memory
+			(atoi(ram.mem_total) - mem_free) - (buffers + cached + sreclaimable), // used memory
 			mem_used, 
-			meminfo.size
+			ram.size
 	);
-	snprintf(meminfo.buffer, meminfo.size, "%s/%s", mem_used, meminfo.mem_total_fmt);
+	snprintf(ram.buffer, ram.size, "%s/%s", mem_used, ram.mem_total_fmt);
 
-	return meminfo.buffer; 
+	return ram.buffer; 
 }
 
 char* battery_status(void) {
@@ -238,7 +244,7 @@ char* battery_status(void) {
 	return battery.buffer;
 }
 
-char* keyboard_layout(void) {
+char* layout_status(void) {
 	char* symbols;
 
 	if (layout.changed) {
@@ -257,7 +263,7 @@ char* keyboard_layout(void) {
 	return layout.buffer;
 }
 
-char* date_time(void) {
+char* date_status(void) {
 	static char buffer[28];
 
 	strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S %a %b", localtime(&(time_t) { time(NULL) }));
@@ -265,11 +271,15 @@ char* date_time(void) {
 	return buffer;
 }
 
-void setup_ram(void) {
+// HANDLERS END
+
+// SETUP START
+
+void ram_setup(void) {
 	int read_size = 32, amount;
 	char* tmp;
 
-	if ((meminfo.fd = open(MEMINFO_PATH, O_RDONLY)) == -1) {
+	if ((ram.fd = open(MEMINFO_PATH, O_RDONLY)) == -1) {
 		perror("setup_ram open "MEMINFO_PATH" error");
 		exit(-1);
 	}
@@ -280,20 +290,20 @@ void setup_ram(void) {
 	}
 
 	while (1) {
-		if ((amount = read_all(meminfo.fd, tmp, read_size)) == -1) {
+		if ((amount = read_all(ram.fd, tmp, read_size)) == -1) {
 			perror("setup_ram tmp read error");
 			exit(-1);
 		}
 
 		for (int a = 0; a < amount; a++) {
 			if (tmp[a] == '\n') { // calculate line length to avoid reading of entire file
-				meminfo.size = a + 1;
+				ram.size = a + 1;
 				free(tmp);
 				goto mem_total_fmt;
 			}
 		}
 
-		lseek(meminfo.fd, 0, SEEK_SET);
+		lseek(ram.fd, 0, SEEK_SET);
 		read_size *= 2;
 		if (!(tmp = realloc(tmp, read_size))) {
 			puts("setup_ram tmp realloc error");
@@ -302,40 +312,40 @@ void setup_ram(void) {
 	}
 
 	mem_total_fmt:
-	if (!(meminfo.buffer = malloc(meminfo.size))) {
-		puts("setup_ram meminfo.buffer malloc error");
+	if (!(ram.buffer = malloc(ram.size))) {
+		puts("setup_ram ram.buffer malloc error");
 		exit(-1);
 	}
 
-	lseek(meminfo.fd, 0, SEEK_SET);
+	lseek(ram.fd, 0, SEEK_SET);
 
-	if (read_all(meminfo.fd, meminfo.buffer, meminfo.size) == -1) {
-		perror("setup_ram meminfo.mem_total read error");
+	if (read_all(ram.fd, ram.buffer, ram.size) == -1) {
+		perror("setup_ram ram.mem_total read error");
 		exit(-1);
 	}
 
-	meminfo.buffer[meminfo.size - 1] = 0; // replace \n
-	str_cut(meminfo.buffer, "MemTotal:");
-	str_cut(meminfo.buffer, "kB");
-	str_trim(meminfo.buffer);
+	ram.buffer[ram.size - 1] = 0; // replace \n
+	str_cut(ram.buffer, "MemTotal:");
+	str_cut(ram.buffer, "kB");
+	str_trim(ram.buffer);
 
-	if (!(meminfo.mem_total = malloc(strlen(meminfo.buffer) + 1))) {
-		puts("setup_ram meminfo.mem_total malloc error");
+	if (!(ram.mem_total = malloc(strlen(ram.buffer) + 1))) {
+		puts("setup_ram ram.mem_total malloc error");
 		exit(-1);
 	}
 
-	strcpy(meminfo.mem_total, meminfo.buffer);
-	format_kb(atoi(meminfo.mem_total), meminfo.buffer, meminfo.size);
+	strcpy(ram.mem_total, ram.buffer);
+	format_kb(atoi(ram.mem_total), ram.buffer, ram.size);
 
-	if (!(meminfo.mem_total_fmt = malloc(strlen(meminfo.buffer) + 1))) {
-		puts("setup_ram meminfo.mem_total_fmt malloc error");
+	if (!(ram.mem_total_fmt = malloc(strlen(ram.buffer) + 1))) {
+		puts("setup_ram ram.mem_total_fmt malloc error");
 		exit(-1);
 	}
 
-	strcpy(meminfo.mem_total_fmt, meminfo.buffer);
+	strcpy(ram.mem_total_fmt, ram.buffer);
 }
 
-void setup_battery_status(void) {
+void battery_setup(void) {
 	battery.capacity_fd = open(BATTERY_CAPACITY_PATH, O_RDONLY);
 
 	if (battery.capacity_fd == -1 && errno != ENOENT) {
@@ -351,7 +361,7 @@ void setup_battery_status(void) {
 	}
 }
 
-void setup_keyboard_layout(void) {
+void layout_setup(void) {
 	char* symbols;
 
 	XkbIgnoreExtension(False);
@@ -384,6 +394,80 @@ void setup_keyboard_layout(void) {
 
 	strcpy(layout.buffer, strchr(layout.buffer, '+') + 1);
 	*strchr(layout.buffer, '+') = 0;
+}
+
+
+void setup(void) {
+	struct sigaction sig = {
+		.sa_sigaction = signal_handler,
+		.sa_flags = SA_SIGINFO
+	};
+
+	if (!(display = XOpenDisplay(0))) {
+		puts("setup XOpenDisplay error");
+		exit(-1);
+	}
+
+	if (!(window = RootWindow(display, DefaultScreen(display)))) {
+		puts("setup RootWindow error");
+		exit(-1);
+	}
+
+	if (sigaction(SIGUSR1, &sig, NULL) == -1) {
+		perror("setup sigaction error");
+		exit(-1);
+	}
+
+	ram_setup();
+	battery_setup();
+	layout_setup();
+}
+
+// SETUP END
+
+void run(void) {
+	int status_text_size = MAX_SYMBOLS + 4; // plus 4 bsc of appending ' | ' in snprintf(3) and 0 byte at the end
+	int current_size = 0, str_length;
+	char* status_text = malloc(status_text_size); 
+	char* str;
+	XTextProperty xtp = {
+		.encoding = XA_STRING,
+		.format = 8,
+		.value = (unsigned char*) status_text // suppress compiler warning
+	};
+
+	if (!status_text) {
+		puts("run malloc error");
+		exit(-1);
+	}
+
+	while (1) {
+		for (int a = 0; a < sizeof(status_providers) / sizeof(*status_providers); a++) {
+			str = status_providers[a]();
+
+			str_trim(str);
+
+			if (!(str_length = strlen(str))) {
+				continue;
+			}
+
+			snprintf(status_text + current_size, status_text_size - current_size, "%s | ", str);
+			current_size += str_length + 3;
+
+			if (current_size - 3 >= MAX_SYMBOLS) {
+				break;
+			}
+		}
+
+		current_size -= 3;
+		xtp.nitems = current_size > MAX_SYMBOLS ? MAX_SYMBOLS : current_size;
+		current_size = 0;
+
+		XSetTextProperty(display, window, &xtp, XA_WM_NAME);
+		XFlush(display);
+
+		usleep(MILLIS_TO_MICROS(50));
+	}
 }
 
 void check_dwm_pid_link(void) {
@@ -434,77 +518,6 @@ void check_dwm_pid_link(void) {
 
 	closedir(dir);
 	sigqueue(pid, SIGUSR1, (union sigval) { .sival_int = getpid() });
-}
-
-void setup(void) {
-	struct sigaction sig = {
-		.sa_sigaction = signal_handler,
-		.sa_flags = SA_SIGINFO
-	};
-
-	if (!(display = XOpenDisplay(0))) {
-		puts("setup XOpenDisplay error");
-		exit(-1);
-	}
-
-	if (!(window = RootWindow(display, DefaultScreen(display)))) {
-		puts("setup RootWindow error");
-		exit(-1);
-	}
-
-	if (sigaction(SIGUSR1, &sig, NULL) == -1) {
-		perror("setup sigaction error");
-		exit(-1);
-	}
-
-	setup_ram();
-	setup_battery_status();
-	setup_keyboard_layout();
-}
-
-void run(void) {
-	int status_text_size = MAX_SYMBOLS + 4; // plus 4 bsc of appending ' | ' in snprintf(3) and 0 byte at the end
-	int current_size = 0, str_length;
-	char* status_text = malloc(status_text_size); 
-	char* str;
-	XTextProperty xtp = {
-		.encoding = XA_STRING,
-		.format = 8,
-		.value = (unsigned char*) status_text // suppress compiler warning
-	};
-
-	if (!status_text) {
-		puts("run malloc error");
-		exit(-1);
-	}
-
-	while (1) {
-		for (int a = 0; a < sizeof(handlers) / sizeof(*handlers); a++) {
-			str = handlers[a]();
-
-			str_trim(str);
-
-			if (!(str_length = strlen(str))) {
-				continue;
-			}
-
-			snprintf(status_text + current_size, status_text_size - current_size, "%s | ", str);
-			current_size += str_length + 3;
-
-			if (current_size - 3 >= MAX_SYMBOLS) {
-				break;
-			}
-		}
-
-		current_size -= 3;
-		xtp.nitems = current_size > MAX_SYMBOLS ? MAX_SYMBOLS : current_size;
-		current_size = 0;
-
-		XSetTextProperty(display, window, &xtp, XA_WM_NAME);
-		XFlush(display);
-
-		usleep(MILLIS_TO_MICROS(50));
-	}
 }
 
 int main() {

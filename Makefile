@@ -32,7 +32,7 @@ status_debug:
 	${CC} -g -o status status.c ${LDFLAGS}
 
 clean:
-	rm -f dwm status ${OBJ} dwm-${VERSION}.tar.gz
+	rm -f dwm status config.h ${OBJ} dwm-${VERSION}.tar.gz
 
 dist: clean
 	mkdir -p dwm-${VERSION}
