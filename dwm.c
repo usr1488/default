@@ -256,6 +256,7 @@ static int lrpad;            /* sum of left and right padding for text */
 static int vp;               /* vertical padding for bar */
 static int sp;               /* side padding for bar */
 static int (*xerrorxlib)(Display *, XErrorEvent *);
+static int status_pid;
 static unsigned int numlockmask = 0;
 static void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
@@ -2252,6 +2253,7 @@ void kblayout(const Arg* a) {
 
 	snprintf(cmd, sizeof(cmd), "setxkbmap %s", layout);
 	system(cmd);
+	sigqueue(status_pid, SIGUSR1, (union sigval) { .sival_int = 1 });
 }
 
 void setbright(const Arg* a) {
@@ -2275,9 +2277,32 @@ void setbright(const Arg* a) {
 	system(cmd);
 }
 
-int
-main(int argc, char *argv[])
-{
+void status_signal_handler(int, siginfo_t* info, void*) {
+	if (kill(status_pid, 0) == ESRCH) { // check if current pid is valid
+		status_pid = info -> si_value.sival_int;
+	}
+}
+
+void spawn_status(void) {
+	struct sigaction act = {
+		.sa_sigaction = status_signal_handler,
+		.sa_flags = SA_SIGINFO
+	};
+
+	if (sigaction(SIGUSR1, &act, NULL) == -1) {
+		perror("spawn_status sigaction error");
+		exit(-1);
+	}
+
+	if (!(status_pid = fork())) {
+		execlp("status", "status", NULL);
+	} else if (status_pid == -1) {
+		perror("spawn_status fork error");
+		exit(-1);
+	}
+}
+
+int main(int argc, char *argv[]) {
 	if (argc == 2 && !strcmp("-v", argv[1]))
 		die("dwm-"VERSION);
 	else if (argc != 1)
@@ -2294,8 +2319,10 @@ main(int argc, char *argv[])
 #endif /* __OpenBSD__ */
 	scan();
 	runautostart();
+	spawn_status();
 	run();
 	cleanup();
 	XCloseDisplay(dpy);
 	return EXIT_SUCCESS;
 }
+
