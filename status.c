@@ -52,7 +52,6 @@ struct {
 struct {
 	unsigned char changed; // set by dwm
 	char* buffer;
-	unsigned char size;
 } layout;
 
 void signal_handler(int, siginfo_t* info, void*) {
@@ -265,8 +264,13 @@ char* layout_status(void) {
 
 char* date_status(void) {
 	static char buffer[28];
-
-	strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S %a %b", localtime(&(time_t) { time(NULL) }));
+	
+	strftime(
+			buffer, 
+			sizeof(buffer), 
+			"%d/%m/%Y %H:%M:%S %a %b", 
+			localtime(&(time_t) { time(NULL) })
+	);
 
 	return buffer;
 }
@@ -381,9 +385,8 @@ void layout_setup(void) {
 
 	XkbGetNames(display, XkbSymbolsNameMask, keyboard);
 	symbols = XGetAtomName(display, keyboard -> names -> symbols);
-	layout.size = strlen(symbols) + 1;
 
-	if (!(layout.buffer = malloc(layout.size))) {
+	if (!(layout.buffer = malloc(strlen(symbols) + 1))) {
 		puts("setup_keyboard_layout layout.buffer malloc error");
 		exit(-1);
 	}
@@ -395,7 +398,6 @@ void layout_setup(void) {
 	strcpy(layout.buffer, strchr(layout.buffer, '+') + 1);
 	*strchr(layout.buffer, '+') = 0;
 }
-
 
 void setup(void) {
 	struct sigaction sig = {
@@ -466,7 +468,7 @@ void run(void) {
 		XSetTextProperty(display, window, &xtp, XA_WM_NAME);
 		XFlush(display);
 
-		usleep(MILLIS_TO_MICROS(50));
+		usleep(MILLIS_TO_MICROS(500));
 	}
 }
 
